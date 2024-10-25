@@ -1,15 +1,29 @@
 import os
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
+from abc import ABC, abstractmethod
 
 # Load environment variables from .env file
 load_dotenv()
 
+class BaseLLM(ABC):
+    @abstractmethod
+    def generate(self, messages):
+        pass
+
+class OpenAILLM(BaseLLM):
+    def __init__(self, model="gpt-3.5-turbo", temperature=0.7):
+        self.llm = ChatOpenAI(model=model, temperature=temperature, api_key=os.getenv('OPENAI_API_KEY'))
+
+    def generate(self, messages):
+        response = self.llm.invoke(messages)
+        return response.content
+
 class Agent:
-    def __init__(self):
+    def __init__(self, llm: BaseLLM):
         self.interaction_count = 0
         self.reflections = []
-        self.llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.7, api_key=os.getenv('OPENAI_API_KEY'))
+        self.llm = llm
         self.memory = []
 
     def talk(self, user_input):
@@ -19,8 +33,7 @@ class Agent:
             {"role": "system", "content": f"Context: {relevant_context}"},
             {"role": "user", "content": user_input}
         ]
-        response = self.llm.invoke(messages)
-        agent_response = response.content
+        agent_response = self.llm.generate(messages)
         self.memory.append(f"User said: {user_input}")
         self.memory.append(f"Agent responded: {agent_response}")
         self.interaction_count += 1
@@ -35,12 +48,10 @@ class Agent:
             {"role": "system", "content": f"Memory: {' '.join(self.memory[-5:])}"},  # Use last 5 memories for context
             {"role": "user", "content": reflection_prompt}
         ]
-        reflection_response = self.llm.invoke(messages)
-        reflection = reflection_response.content
-        self.reflections.append(f"Reflection: {reflection}")  # Store reflection in memory
-        self.memory.append(f"Reflection: {reflection}")  # Also append reflection to memory
-        print(f"Agent reflection: {reflection}")  # Show reflection output
-
+        reflection = self.llm.generate(messages)
+        self.reflections.append(f"Reflection: {reflection}")
+        self.memory.append(f"Reflection: {reflection}")
+        print(f"Agent reflection: {reflection}")
 
     def inject_thought(self, thought):
         self.memory.append(f"Thought: {thought}")
@@ -56,7 +67,8 @@ class Agent:
         return " ".join(relevant_memories[-3:])  # Return up to 3 most recent relevant memories
 
 def main():
-    agent = Agent()
+    llm = OpenAILLM()  # Create an instance of OpenAILLM
+    agent = Agent(llm)  # Pass the LLM instance to the Agent
     while True:
         user_input = input("\nYou: ")
         if user_input.lower() == "exit":

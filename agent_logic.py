@@ -1,11 +1,25 @@
 import os
-import sqlite3
 from abc import ABC, abstractmethod
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
-import uuid
+from sqlalchemy import create_engine, Column, Integer, String, Text
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
 
 load_dotenv()
+
+Base = declarative_base()
+# 
+class Memory(Base):
+    __tablename__ = 'memories'
+    id = Column(Integer, primary_key=True)
+    type = Column(String)
+    content = Column(Text)
+
+class InteractionCount(Base):
+    __tablename__ = 'interaction_count'
+    id = Column(Integer, primary_key=True)
+    count = Column(Integer)
 
 class BaseLLM(ABC):
     @abstractmethod
@@ -28,50 +42,36 @@ class Agent:
     def __init__(self, llm: BaseLLM, db_name='agent_memory.db'):
         self.llm = llm
         self.db_path = os.path.join(os.getcwd(), db_name)
-        self.init_db()
+        self.engine = create_engine(f'sqlite:///{self.db_path}')
+        Base.metadata.create_all(self.engine)
+        self.Session = sessionmaker(bind=self.engine)
         self.interaction_count = self.get_interaction_count()
 
-    def init_db(self):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('''CREATE TABLE IF NOT EXISTS memories
-                          (id INTEGER PRIMARY KEY, type TEXT, content TEXT)''')
-        cursor.execute('''CREATE TABLE IF NOT EXISTS interaction_count
-                          (id INTEGER PRIMARY KEY, count INTEGER)''')
-        cursor.execute('INSERT OR IGNORE INTO interaction_count (id, count) VALUES (1, 0)')
-        conn.commit()
-        conn.close()
-
     def get_interaction_count(self):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('SELECT count FROM interaction_count WHERE id = 1')
-        result = cursor.fetchone()
-        conn.close()
-        return result[0] if result else 0
+        with self.Session() as session:
+            count = session.query(InteractionCount).first()
+            if not count:
+                count = InteractionCount(id=1, count=0)
+                session.add(count)
+                session.commit()
+            return count.count
 
     def update_interaction_count(self):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('UPDATE interaction_count SET count = ? WHERE id = 1',
-                       (self.interaction_count,))
-        conn.commit()
-        conn.close()
+        with self.Session() as session:
+            count = session.query(InteractionCount).first()
+            count.count = self.interaction_count
+            session.commit()
 
     def add_to_memory(self, memory_type, content):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('INSERT INTO memories (type, content) VALUES (?, ?)', (memory_type, content))
-        conn.commit()
-        conn.close()
+        with self.Session() as session:
+            memory = Memory(type=memory_type, content=content)
+            session.add(memory)
+            session.commit()
 
     def get_recent_memories(self, limit=10):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('SELECT type, content FROM memories ORDER BY id DESC LIMIT ?', (limit,))
-        memories = cursor.fetchall()
-        conn.close()
-        return [f"{mem_type}: {content}" for mem_type, content in memories]
+        with self.Session() as session:
+            memories = session.query(Memory).order_by(Memory.id.desc()).limit(limit).all()
+            return [f"{mem.type}: {mem.content}" for mem in memories]
 
     def talk(self, user_input):
         relevant_context = self.get_relevant_context(user_input)
@@ -114,3 +114,12 @@ class Agent:
             if any(word in memory.lower() for word in user_input.lower().split()):
                 relevant_memories.append(memory)
         return " ".join(relevant_memories[-3:])
+
+    def list_all_memories(self):
+        """
+        Retrieve all memories from the database without the agent being aware.
+        This method doesn't update the interaction count or trigger any agent logic.
+        """
+        with self.Session() as session:
+            memories = session.query(Memory).order_by(Memory.id.asc()).all()
+            return [f"ID: {mem.id}, Type: {mem.type}, Content: {mem.content}" for mem in memories]

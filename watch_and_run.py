@@ -15,8 +15,8 @@ class MyHandler(FileSystemEventHandler):
         self.process = None
 
     def on_modified(self, event):
-        if event.src_path.endswith('agent.py'):
-            print('agent.py has been modified. Restarting...')
+        if event.src_path.endswith(('agent.py', 'agent_logic.py')):
+            print(f'{event.src_path} has been modified. Restarting...')
             if self.process:
                 self.process.terminate()
                 self.process.wait()
@@ -35,7 +35,8 @@ if __name__ == "__main__":
     observer.start()
 
     try:
-        event_handler.on_modified(type('Event', (), {'src_path': 'agent.py'})())  # Initial run
+        # Initial run
+        event_handler.on_modified(type('Event', (), {'src_path': 'agent.py'})())
         while True:
             time.sleep(1)
     except KeyboardInterrupt:

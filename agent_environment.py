@@ -71,7 +71,8 @@ for db_agent in agent_manager.get_all_agents():
         "response": "",
         "bubble_timer": 0,
         "movement_cooldown": 0,
-        "personality": random.random()
+        "personality": random.random(),
+        "interaction_radius": 100  # Ensure this line is present
     })
 
 clock = pygame.time.Clock()
@@ -116,6 +117,18 @@ def draw_speech_bubble(text, position, sprite):
             text_surface,
             (bubble_x + padding, bubble_y + padding + i * font_height)
         )
+
+
+def check_nearby_agents(agent, all_agents):
+    nearby_agents = []
+    for other_agent in all_agents:
+        if other_agent['id'] != agent['id']:
+            distance = ((agent['pos'][0] - other_agent['pos'][0])**2 + 
+                        (agent['pos'][1] - other_agent['pos'][1])**2)**0.5
+            if distance <= agent['interaction_radius']:
+                nearby_agents.append(other_agent)
+    return nearby_agents
+
 
 def draw_memories():
     global memory_scroll
@@ -186,7 +199,8 @@ while running:
                     "response": "",
                     "bubble_timer": 0,
                     "movement_cooldown": 0,
-                    "personality": random.random()
+                    "personality": random.random(),
+                    "interaction_radius": 100  # Ensure this line is present
                 })
                 selected_agent = len(agents) - 1
             elif event.key == pygame.K_t and not viewing_memories and not input_active and selected_agent is not None:
@@ -243,6 +257,35 @@ while running:
             agent["movement_cooldown"] = random.randint(base_cooldown, base_cooldown + 10)
         else:
             agent["movement_cooldown"] -= 1
+    # Check for agent interactions
+    for i, agent in enumerate(agents):
+        if agent["bubble_timer"] <= 0:  # Only initiate new interactions if not already talking
+            nearby_agents = check_nearby_agents(agent, agents)
+            for other_agent in nearby_agents:
+                if other_agent["bubble_timer"] <= 0 and random.random() < 0.005:  # 0.5% chance of interaction per frame per nearby agent
+                    interaction_result, reflection1, reflection2 = agent_manager.agent_interaction(agent['id'], other_agent['id'])
+                    
+                    # Handle the interaction result as before
+                    agent_messages = interaction_result.split('\n')
+                    if len(agent_messages) >= 2:
+                        agent['show_bubble'] = True
+                        agent['response'] = agent_messages[0]
+                        agent['bubble_timer'] = 200
+                        
+                        other_agent['show_bubble'] = True
+                        other_agent['response'] = agent_messages[1]
+                        other_agent['bubble_timer'] = 200
+                    
+                    # Handle reflections
+                    if reflection1:
+                        print(f"{agent['name']} reflects: {reflection1}")
+                        # Optionally, you can show this reflection in a bubble or UI element
+                    
+                    if reflection2:
+                        print(f"{other_agent['name']} reflects: {reflection2}")
+                        # Optionally, you can show this reflection in a bubble or UI element
+                    
+                    break  # Exit the loop after one successful interaction
 
     draw_laboratory()
 

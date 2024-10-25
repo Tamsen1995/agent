@@ -15,7 +15,7 @@ class MyHandler(FileSystemEventHandler):
         self.process = None
 
     def on_modified(self, event):
-        if event.src_path.endswith(('agent.py', 'agent_logic.py')):
+        if event.src_path.endswith(('agent_environment.py', 'agent_logic.py')):
             print(f'{event.src_path} has been modified. Restarting...')
             if self.process:
                 self.process.terminate()
@@ -23,7 +23,7 @@ class MyHandler(FileSystemEventHandler):
             kill_process('python.exe')  # For Windows
             kill_process('python3')  # For Unix-based systems
             try:
-                self.process = subprocess.Popen(['python', 'agent.py'])
+                self.process = subprocess.Popen(['python', 'agent_environment.py'])
             except Exception as e:
                 print(f"Error starting agent.py: {e}")
 
@@ -36,7 +36,7 @@ if __name__ == "__main__":
 
     try:
         # Initial run
-        event_handler.on_modified(type('Event', (), {'src_path': 'agent.py'})())
+        event_handler.on_modified(type('Event', (), {'src_path': 'agent_environment.py'})())
         while True:
             time.sleep(1)
     except KeyboardInterrupt:

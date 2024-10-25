@@ -5,6 +5,7 @@ from langchain_openai import ChatOpenAI
 from sqlalchemy import create_engine, Column, Integer, String, Text, Float, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
+import time
 
 load_dotenv()
 
@@ -16,7 +17,9 @@ class Agent(Base):
     name = Column(String)
     x_position = Column(Float)
     y_position = Column(Float)
+    interaction_count = Column(Integer, default=0)
     memories = relationship("Memory", back_populates="agent")
+    reflections = relationship("Reflection", back_populates="agent")
 
 class Memory(Base):
     __tablename__ = 'memories'
@@ -25,6 +28,14 @@ class Memory(Base):
     type = Column(String)
     content = Column(Text)
     agent = relationship("Agent", back_populates="memories")
+
+class Reflection(Base):
+    __tablename__ = 'reflections'
+    id = Column(Integer, primary_key=True)
+    agent_id = Column(Integer, ForeignKey('agents.id'))
+    content = Column(Text)
+    timestamp = Column(Float)
+    agent = relationship("Agent", back_populates="reflections")
 
 class AgentManager:
     def __init__(self, db_name='agent_database.db'):
@@ -88,6 +99,35 @@ class AgentManager:
         with self.Session() as session:
             memories = session.query(Memory).filter(Memory.agent_id == agent_id).order_by(Memory.id.asc()).all()
             return [f"ID: {mem.id}, Type: {mem.type}, Content: {mem.content}" for mem in memories]
+    
+    def agent_interaction(self, agent1_id, agent2_id):
+        with self.Session() as session:
+            agent1 = session.query(Agent).get(agent1_id)
+            agent2 = session.query(Agent).get(agent2_id)
+            if agent1 and agent2:
+                context = f"You are moderating a brief interaction between {agent1.name} and {agent2.name}. Generate a short exchange between them, with one line of dialogue for each agent."
+                messages = [
+                    {"role": "system", "content": context},
+                    {"role": "user", "content": "Generate the interaction, with each agent's dialogue on a separate line."}
+                ]
+                llm = OpenAILLM()
+                interaction = llm.generate(messages)
+                
+                # Split the interaction into two lines
+                agent_messages = interaction.split('\n')[:2]
+                if len(agent_messages) < 2:
+                    agent_messages.append("...")  # In case the model doesn't generate two lines
+                
+                full_interaction = f"{agent1.name}: {agent_messages[0]}\n{agent2.name}: {agent_messages[1]}"
+                self.add_memory(agent1_id, 'interaction', full_interaction)
+                self.add_memory(agent2_id, 'interaction', full_interaction)
+                
+                # After successful interaction, check for reflection
+                reflection1 = self.check_and_generate_reflection(agent1_id)
+                reflection2 = self.check_and_generate_reflection(agent2_id)
+                
+                return full_interaction, reflection1, reflection2
+        return "No interaction occurred.", None, None
 
     def delete_agent(self, agent_id):
         with self.Session() as session:
@@ -100,6 +140,46 @@ class AgentManager:
                 session.commit()
                 return True
             return False
+
+    def increment_interaction_count(self, agent_id):
+        with self.Session() as session:
+            agent = session.query(Agent).get(agent_id)
+            if agent:
+                agent.interaction_count += 1
+                session.commit()
+                return agent.interaction_count
+        return None
+
+    def check_and_generate_reflection(self, agent_id, interaction_threshold=10):
+        interaction_count = self.increment_interaction_count(agent_id)
+        if interaction_count and interaction_count % interaction_threshold == 0:
+            return self.generate_reflection(agent_id)
+        return None
+
+    def generate_reflection(self, agent_id):
+        with self.Session() as session:
+            agent = session.query(Agent).get(agent_id)
+            if agent:
+                recent_memories = self.get_recent_memories(agent_id, limit=10)
+                if recent_memories:
+                    context = f"You are {agent.name}. Reflect on your recent experiences and draw insights or conclusions based on the following recent memories:\n\n" + "\n".join(recent_memories)
+                    messages = [
+                        {"role": "system", "content": context},
+                        {"role": "user", "content": "Based on these recent experiences, what insights can you draw? How might these experiences influence your future actions or decisions?"}
+                    ]
+                    llm = OpenAILLM()
+                    reflection_content = llm.generate(messages)
+                    
+                    new_reflection = Reflection(agent_id=agent_id, content=reflection_content, timestamp=time.time())
+                    session.add(new_reflection)
+                    session.commit()
+                    return reflection_content
+        return None
+
+    def get_recent_reflections(self, agent_id, limit=5):
+        with self.Session() as session:
+            reflections = session.query(Reflection).filter(Reflection.agent_id == agent_id).order_by(Reflection.timestamp.desc()).limit(limit).all()
+            return [f"Reflection: {ref.content}" for ref in reflections]
 
 class BaseLLM(ABC):
     @abstractmethod

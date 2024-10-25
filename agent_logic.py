@@ -77,7 +77,7 @@ class AgentManager:
     def talk(self, agent_id, user_input):
         relevant_context = self.get_relevant_context(agent_id, user_input)
         messages = [
-            {"role": "system", "content": "You are a thoughtful agent with memory of past interactions. Use this context to inform your responses."},
+            {"role": "system", "content": "You are a thoughtful agent with memory of past interactions and reflections. Use this context to inform your responses."},
             {"role": "system", "content": f"Context: {relevant_context}"},
             {"role": "user", "content": user_input}
         ]
@@ -89,17 +89,20 @@ class AgentManager:
 
     def get_relevant_context(self, agent_id, user_input):
         recent_memories = self.get_recent_memories(agent_id)
+        recent_reflections = self.get_recent_reflections(agent_id, limit=2)
+        
         relevant_memories = []
         for memory in reversed(recent_memories):
             if any(word in memory.lower() for word in user_input.lower().split()):
                 relevant_memories.append(memory)
-        return " ".join(relevant_memories[-3:])
+        
+        context = " ".join(relevant_memories[-3:])
+        
+        if recent_reflections:
+            context += "\n\nRecent reflections:\n" + "\n".join(recent_reflections)
+        
+        return context
 
-    def list_all_memories(self, agent_id):
-        with self.Session() as session:
-            memories = session.query(Memory).filter(Memory.agent_id == agent_id).order_by(Memory.id.asc()).all()
-            return [f"ID: {mem.id}, Type: {mem.type}, Content: {mem.content}" for mem in memories]
-    
     def agent_interaction(self, agent1_id, agent2_id):
         with self.Session() as session:
             agent1 = session.query(Agent).get(agent1_id)
@@ -180,6 +183,19 @@ class AgentManager:
         with self.Session() as session:
             reflections = session.query(Reflection).filter(Reflection.agent_id == agent_id).order_by(Reflection.timestamp.desc()).limit(limit).all()
             return [f"Reflection: {ref.content}" for ref in reflections]
+
+    def list_all_memories_and_reflections(self, agent_id):
+        with self.Session() as session:
+            memories = session.query(Memory).filter(Memory.agent_id == agent_id).order_by(Memory.id.desc()).all()
+            reflections = session.query(Reflection).filter(Reflection.agent_id == agent_id).order_by(Reflection.id.desc()).all()
+            
+            combined = []
+            for memory in memories:
+                combined.append(f"{memory.type}: {memory.content}")
+            for reflection in reflections:
+                combined.append(f"Reflection: {reflection.content}")
+            
+            return sorted(combined, key=lambda x: x.split(': ')[1], reverse=True)  # Sort by content timestamp if available
 
 class BaseLLM(ABC):
     @abstractmethod

@@ -135,13 +135,18 @@ def draw_memories():
     memory_surface = pygame.Surface((WIDTH - 100, HEIGHT - 100))
     memory_surface.fill(WHITE)
     y = 10
-    for memory in memories[memory_scroll:]:
-        words = memory.split()
+    
+    for item in memories[memory_scroll:]:
+        is_reflection = item.startswith("Reflection:")
+        color = DARK_GRAY if is_reflection else BLACK
+        bg_color = (255, 255, 200) if is_reflection else WHITE  # Light yellow for reflections
+        
+        words = item.split()
         lines = []
         current_line = []
         for word in words:
             test_line = ' '.join(current_line + [word])
-            if font.size(test_line)[0] <= WIDTH - 120:
+            if font.size(test_line)[0] <= WIDTH - 140:  # Reduced width to account for left margin
                 current_line.append(word)
             else:
                 lines.append(' '.join(current_line))
@@ -149,17 +154,26 @@ def draw_memories():
         if current_line:
             lines.append(' '.join(current_line))
         
+        # Draw background for the entire memory/reflection
+        total_height = len(lines) * 30 + 10  # 30 pixels per line + 10 pixels padding
+        pygame.draw.rect(memory_surface, bg_color, (5, y, WIDTH - 110, total_height))
+        
         for line in lines:
-            memory_text = font.render(line, True, BLACK)
-            memory_surface.blit(memory_text, (10, y))
+            if is_reflection:
+                pygame.draw.rect(memory_surface, (200, 200, 100), (5, y, 5, 30))  # Yellow bar on the left
+            
+            memory_text = font.render(line, True, color)
+            memory_surface.blit(memory_text, (15, y))  # Increased left margin
             y += 30
             if y > HEIGHT - 130:
                 break
-        y += 10  # Add some space between memories
+        y += 10  # Add some space between memories/reflections
         if y > HEIGHT - 130:
             break
+    
     screen.blit(memory_surface, (50, 50))
     
+    # Draw scroll bar
     pygame.draw.rect(screen, GRAY, (WIDTH - 30, 50, 20, HEIGHT - 100))
     pygame.draw.polygon(screen, BLACK, [(WIDTH - 25, 60), (WIDTH - 15, 60), (WIDTH - 20, 50)])
     pygame.draw.polygon(screen, BLACK, [(WIDTH - 25, HEIGHT - 60), (WIDTH - 15, HEIGHT - 60), (WIDTH - 20, HEIGHT - 50)])
@@ -208,7 +222,7 @@ while running:
             elif event.key == pygame.K_m and not input_active and selected_agent is not None:
                 viewing_memories = not viewing_memories
                 if viewing_memories:
-                    memories = agent_manager.list_all_memories(agents[selected_agent]["id"])
+                    memories = agent_manager.list_all_memories_and_reflections(agents[selected_agent]["id"])
                     memory_scroll = 0
             elif event.key == pygame.K_TAB:
                 if agents:

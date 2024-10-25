@@ -31,7 +31,9 @@ for db_agent in agent_manager.get_all_agents():
         "sprite": sprite,
         "show_bubble": False,
         "response": "",
-        "bubble_timer": 0
+        "bubble_timer": 0,
+        "movement_cooldown": 0,
+        "personality": random.random()
     })
 
 clock = pygame.time.Clock()
@@ -111,6 +113,13 @@ def draw_memories():
     pygame.draw.polygon(screen, BLACK, [(WIDTH - 25, 60), (WIDTH - 15, 60), (WIDTH - 20, 50)])
     pygame.draw.polygon(screen, BLACK, [(WIDTH - 25, HEIGHT - 60), (WIDTH - 15, HEIGHT - 60), (WIDTH - 20, HEIGHT - 50)])
 
+def calculate_random_movement(current_pos, width, height):
+    dx = random.randint(-20, 20)  # Increased range of movement
+    dy = random.randint(-20, 20)  # Increased range of movement
+    new_x = max(0, min(current_pos[0] + dx, width - 32))
+    new_y = max(0, min(current_pos[1] + dy, height - 32))
+    return [new_x, new_y]
+
 running = True
 selected_agent = 0 if agents else None
 
@@ -137,7 +146,9 @@ while running:
                     "sprite": new_sprite,
                     "show_bubble": False,
                     "response": "",
-                    "bubble_timer": 0
+                    "bubble_timer": 0,
+                    "movement_cooldown": 0,
+                    "personality": random.random()
                 })
                 selected_agent = len(agents) - 1
             elif event.key == pygame.K_t and not viewing_memories and not input_active and selected_agent is not None:
@@ -185,11 +196,16 @@ while running:
 
     # Update agent positions
     for agent in agents:
-        agent["pos"][0] += random.randint(-1, 1)
-        agent["pos"][1] += random.randint(-1, 1)
-        agent["pos"][0] = max(0, min(agent["pos"][0], WIDTH - 32))
-        agent["pos"][1] = max(0, min(agent["pos"][1], HEIGHT - 32))
-        agent_manager.update_agent_position(agent["id"], agent["pos"][0], agent["pos"][1])
+        if agent["movement_cooldown"] <= 0:
+            new_pos = calculate_random_movement(agent["pos"], WIDTH, HEIGHT)
+            agent["pos"] = new_pos
+            agent_manager.update_agent_position(agent["id"], new_pos[0], new_pos[1])
+            
+            # Set a shorter cooldown for more frequent movement
+            base_cooldown = 10 + int(agent["personality"] * 20)  # 0.16 to 0.5 seconds
+            agent["movement_cooldown"] = random.randint(base_cooldown, base_cooldown + 10)
+        else:
+            agent["movement_cooldown"] -= 1
 
     screen.fill(WHITE)
 

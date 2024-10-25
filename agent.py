@@ -8,16 +8,53 @@ pygame.init()
 
 WIDTH, HEIGHT = 1024, 768
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Multi-Agent AI Game")
+pygame.display.set_caption("Multi-Agent AI Laboratory")
 
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 GRAY = (200, 200, 200)
+LIGHT_BLUE = (200, 220, 255)
+DARK_GRAY = (100, 100, 100)
+GLASS_COLOR = (200, 200, 255, 128)
 
 sprite_path = os.path.join(os.path.dirname(__file__), 'characters.png')
 sprite_sheet = pygame.image.load(sprite_path)
 
 agent_manager = AgentManager()
+
+BOX_MARGIN_X = 400
+BOX_MARGIN_Y = 250
+BOX_WIDTH = WIDTH - 2 * BOX_MARGIN_X
+BOX_HEIGHT = HEIGHT - 2 * BOX_MARGIN_Y
+
+def draw_laboratory():
+    screen.fill(LIGHT_BLUE)
+    
+    # Draw walls
+    pygame.draw.rect(screen, GRAY, (0, 0, WIDTH, 20))
+    pygame.draw.rect(screen, GRAY, (0, 0, 20, HEIGHT))
+    pygame.draw.rect(screen, GRAY, (0, HEIGHT - 20, WIDTH, 20))
+    pygame.draw.rect(screen, GRAY, (WIDTH - 20, 0, 20, HEIGHT))
+    
+    # Draw tables
+    table_color = (150, 75, 0)
+    pygame.draw.rect(screen, table_color, (50, 50, 200, 100))
+    pygame.draw.rect(screen, table_color, (WIDTH - 250, 50, 200, 100))
+    pygame.draw.rect(screen, table_color, (50, HEIGHT - 150, 200, 100))
+    pygame.draw.rect(screen, table_color, (WIDTH - 250, HEIGHT - 150, 200, 100))
+    
+    # Draw equipment
+    equipment_color = DARK_GRAY
+    pygame.draw.rect(screen, equipment_color, (100, 70, 50, 50))
+    pygame.draw.rect(screen, equipment_color, (WIDTH - 200, 70, 50, 50))
+    pygame.draw.rect(screen, equipment_color, (100, HEIGHT - 130, 50, 50))
+    pygame.draw.rect(screen, equipment_color, (WIDTH - 200, HEIGHT - 130, 50, 50))
+
+    # Draw glass-like box
+    glass_surface = pygame.Surface((BOX_WIDTH, BOX_HEIGHT), pygame.SRCALPHA)
+    pygame.draw.rect(glass_surface, GLASS_COLOR, (0, 0, BOX_WIDTH, BOX_HEIGHT))
+    screen.blit(glass_surface, (BOX_MARGIN_X, BOX_MARGIN_Y))
+    pygame.draw.rect(screen, WHITE, (BOX_MARGIN_X, BOX_MARGIN_Y, BOX_WIDTH, BOX_HEIGHT), 2)
 
 agents = []
 for db_agent in agent_manager.get_all_agents():
@@ -27,7 +64,8 @@ for db_agent in agent_manager.get_all_agents():
     agents.append({
         "id": db_agent.id,
         "name": db_agent.name,
-        "pos": [db_agent.x_position, db_agent.y_position],
+        "pos": [random.randint(BOX_MARGIN_X, BOX_MARGIN_X + BOX_WIDTH - 32),
+                random.randint(BOX_MARGIN_Y, BOX_MARGIN_Y + BOX_HEIGHT - 32)],
         "sprite": sprite,
         "show_bubble": False,
         "response": "",
@@ -114,10 +152,10 @@ def draw_memories():
     pygame.draw.polygon(screen, BLACK, [(WIDTH - 25, HEIGHT - 60), (WIDTH - 15, HEIGHT - 60), (WIDTH - 20, HEIGHT - 50)])
 
 def calculate_random_movement(current_pos, width, height):
-    dx = random.randint(-20, 20)  # Increased range of movement
-    dy = random.randint(-20, 20)  # Increased range of movement
-    new_x = max(0, min(current_pos[0] + dx, width - 32))
-    new_y = max(0, min(current_pos[1] + dy, height - 32))
+    dx = random.randint(-10, 10)  # Reduced movement range
+    dy = random.randint(-10, 10)  # Reduced movement range
+    new_x = max(BOX_MARGIN_X, min(current_pos[0] + dx, BOX_MARGIN_X + BOX_WIDTH - 32))
+    new_y = max(BOX_MARGIN_Y, min(current_pos[1] + dy, BOX_MARGIN_Y + BOX_HEIGHT - 32))
     return [new_x, new_y]
 
 running = True
@@ -131,9 +169,9 @@ while running:
             if event.key == pygame.K_ESCAPE:
                 running = False
             elif event.key == pygame.K_n:
-                # Spawn a new agent
-                new_x = random.randint(0, WIDTH - 32)
-                new_y = random.randint(0, HEIGHT - 32)
+                # Spawn a new agent inside the glass box
+                new_x = random.randint(BOX_MARGIN_X, BOX_MARGIN_X + BOX_WIDTH - 32)
+                new_y = random.randint(BOX_MARGIN_Y, BOX_MARGIN_Y + BOX_HEIGHT - 32)
                 new_name = f"Agent_{len(agents) + 1}"
                 new_id = agent_manager.create_agent(new_name, new_x, new_y)
                 new_sprite = pygame.Surface((16, 16), pygame.SRCALPHA)
@@ -201,13 +239,12 @@ while running:
             agent["pos"] = new_pos
             agent_manager.update_agent_position(agent["id"], new_pos[0], new_pos[1])
             
-            # Set a shorter cooldown for more frequent movement
-            base_cooldown = 10 + int(agent["personality"] * 20)  # 0.16 to 0.5 seconds
+            base_cooldown = 10 + int(agent["personality"] * 20)
             agent["movement_cooldown"] = random.randint(base_cooldown, base_cooldown + 10)
         else:
             agent["movement_cooldown"] -= 1
 
-    screen.fill(WHITE)
+    draw_laboratory()
 
     # Draw agents and their speech bubbles
     for i, agent in enumerate(agents):

@@ -1,13 +1,14 @@
 import pygame
 import sys
 import os
-from agent_logic import Agent, OpenAILLM
+import random
+from agent_logic import AgentManager
 
 pygame.init()
 
 WIDTH, HEIGHT = 1024, 768
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("AI Agent Game")
+pygame.display.set_caption("Multi-Agent AI Game")
 
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
@@ -16,33 +17,35 @@ GRAY = (200, 200, 200)
 sprite_path = os.path.join(os.path.dirname(__file__), 'characters.png')
 sprite_sheet = pygame.image.load(sprite_path)
 
-agent_sprite = pygame.Surface((16, 16), pygame.SRCALPHA)
-agent_sprite.blit(sprite_sheet, (0, 0), (0, 0, 16, 16))
-agent_sprite = pygame.transform.scale(agent_sprite, (32, 32))  
+agent_manager = AgentManager()
 
-agent_pos = [WIDTH // 3, HEIGHT // 3]
+agents = []
+for db_agent in agent_manager.get_all_agents():
+    sprite = pygame.Surface((16, 16), pygame.SRCALPHA)
+    sprite.blit(sprite_sheet, (0, 0), (random.randint(0, 3) * 16, 0, 16, 16))
+    sprite = pygame.transform.scale(sprite, (32, 32))
+    agents.append({
+        "id": db_agent.id,
+        "name": db_agent.name,
+        "pos": [db_agent.x_position, db_agent.y_position],
+        "sprite": sprite,
+        "show_bubble": False,
+        "response": "",
+        "bubble_timer": 0
+    })
 
 clock = pygame.time.Clock()
-
-llm = OpenAILLM()
-ai_agent = Agent(llm)
-
-show_bubble = False
-agent_response = ""
-bubble_duration = 200
-bubble_timer = 0
 
 input_active = False
 user_text = ''
 input_box = pygame.Rect(100, HEIGHT - 40, WIDTH - 200, 30)
 font = pygame.font.Font(None, 20)
 
-# New variables for memory viewing
 viewing_memories = False
 memory_scroll = 0
 memories = []
 
-def draw_speech_bubble(text, position):
+def draw_speech_bubble(text, position, sprite):
     max_width = 300
     words = text.split(' ')
     lines = []
@@ -61,7 +64,7 @@ def draw_speech_bubble(text, position):
     bubble_width = max(font.size(l)[0] for l in lines) + padding * 2
     bubble_height = font_height * len(lines) + padding * 2
 
-    bubble_x = position[0] + agent_sprite.get_width() // 2 - bubble_width // 2
+    bubble_x = position[0] + sprite.get_width() // 2 - bubble_width // 2
     bubble_y = position[1] - bubble_height - 10
 
     pygame.draw.rect(screen, WHITE, (bubble_x, bubble_y, bubble_width, bubble_height))
@@ -108,8 +111,9 @@ def draw_memories():
     pygame.draw.polygon(screen, BLACK, [(WIDTH - 25, 60), (WIDTH - 15, 60), (WIDTH - 20, 50)])
     pygame.draw.polygon(screen, BLACK, [(WIDTH - 25, HEIGHT - 60), (WIDTH - 15, HEIGHT - 60), (WIDTH - 20, HEIGHT - 50)])
 
-# Main game loop
 running = True
+selected_agent = 0 if agents else None
+
 while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
@@ -117,13 +121,35 @@ while running:
         elif event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 running = False
-            elif event.key == pygame.K_t and not viewing_memories and not input_active:
+            elif event.key == pygame.K_n:
+                # Spawn a new agent
+                new_x = random.randint(0, WIDTH - 32)
+                new_y = random.randint(0, HEIGHT - 32)
+                new_name = f"Agent_{len(agents) + 1}"
+                new_id = agent_manager.create_agent(new_name, new_x, new_y)
+                new_sprite = pygame.Surface((16, 16), pygame.SRCALPHA)
+                new_sprite.blit(sprite_sheet, (0, 0), (random.randint(0, 3) * 16, 0, 16, 16))
+                new_sprite = pygame.transform.scale(new_sprite, (32, 32))
+                agents.append({
+                    "id": new_id,
+                    "name": new_name,
+                    "pos": [new_x, new_y],
+                    "sprite": new_sprite,
+                    "show_bubble": False,
+                    "response": "",
+                    "bubble_timer": 0
+                })
+                selected_agent = len(agents) - 1
+            elif event.key == pygame.K_t and not viewing_memories and not input_active and selected_agent is not None:
                 input_active = True
-            elif event.key == pygame.K_m and not input_active:
+            elif event.key == pygame.K_m and not input_active and selected_agent is not None:
                 viewing_memories = not viewing_memories
                 if viewing_memories:
-                    memories = ai_agent.list_all_memories()
+                    memories = agent_manager.list_all_memories(agents[selected_agent]["id"])
                     memory_scroll = 0
+            elif event.key == pygame.K_TAB:
+                if agents:
+                    selected_agent = (selected_agent + 1) % len(agents)
             elif viewing_memories:
                 if event.key == pygame.K_UP:
                     memory_scroll = max(0, memory_scroll - 1)
@@ -131,9 +157,10 @@ while running:
                     memory_scroll = min(len(memories) - 1, memory_scroll + 1)
             elif input_active:
                 if event.key == pygame.K_RETURN:
-                    agent_response = ai_agent.talk(user_text)
-                    show_bubble = True
-                    bubble_timer = bubble_duration
+                    agent_response = agent_manager.talk(agents[selected_agent]["id"], user_text)
+                    agents[selected_agent]["show_bubble"] = True
+                    agents[selected_agent]["response"] = agent_response
+                    agents[selected_agent]["bubble_timer"] = 200  # bubble_duration
                     user_text = ''
                     input_active = False
                 elif event.key == pygame.K_BACKSPACE:
@@ -148,24 +175,28 @@ while running:
                     elif HEIGHT - 70 <= event.pos[1] <= HEIGHT - 50:
                         memory_scroll = min(len(memories) - 1, memory_scroll + 1)
 
-    keys = pygame.key.get_pressed()
-    if keys[pygame.K_LEFT]:
-        agent_pos[0] = max(agent_pos[0] - 5, 0)
-    if keys[pygame.K_RIGHT]:
-        agent_pos[0] = min(agent_pos[0] + 5, WIDTH - agent_sprite.get_width())
-    if keys[pygame.K_UP]:
-        agent_pos[1] = max(agent_pos[1] - 5, 0)
-    if keys[pygame.K_DOWN]:
-        agent_pos[1] = min(agent_pos[1] + 5, HEIGHT - agent_sprite.get_height())
+    # Update agent positions
+    for agent in agents:
+        agent["pos"][0] += random.randint(-1, 1)
+        agent["pos"][1] += random.randint(-1, 1)
+        agent["pos"][0] = max(0, min(agent["pos"][0], WIDTH - 32))
+        agent["pos"][1] = max(0, min(agent["pos"][1], HEIGHT - 32))
+        agent_manager.update_agent_position(agent["id"], agent["pos"][0], agent["pos"][1])
 
     screen.fill(WHITE)
-    screen.blit(agent_sprite, agent_pos)
 
-    if show_bubble:
-        draw_speech_bubble(agent_response, agent_pos)
-        bubble_timer -= 1
-        if bubble_timer <= 0:
-            show_bubble = False
+    # Draw agents and their speech bubbles
+    for i, agent in enumerate(agents):
+        screen.blit(agent["sprite"], agent["pos"])
+        if agent["show_bubble"]:
+            draw_speech_bubble(agent["response"], agent["pos"], agent["sprite"])
+            agent["bubble_timer"] -= 1
+            if agent["bubble_timer"] <= 0:
+                agent["show_bubble"] = False
+
+        # Highlight the selected agent
+        if i == selected_agent:
+            pygame.draw.rect(screen, (255, 0, 0), (*agent["pos"], 32, 32), 2)
 
     if input_active:
         pygame.draw.rect(screen, BLACK, input_box, 2)

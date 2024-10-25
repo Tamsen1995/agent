@@ -167,6 +167,14 @@ while running:
                     user_text = user_text[:-1]
                 else:
                     user_text += event.unicode
+            elif event.key == pygame.K_d and selected_agent is not None:
+                # Delete the currently selected agent
+                if agent_manager.delete_agent(agents[selected_agent]["id"]):
+                    del agents[selected_agent]
+                    if agents:
+                        selected_agent = (selected_agent) % len(agents)
+                    else:
+                        selected_agent = None
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if viewing_memories:
                 if WIDTH - 30 <= event.pos[0] <= WIDTH - 10:

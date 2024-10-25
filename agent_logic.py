@@ -89,6 +89,18 @@ class AgentManager:
             memories = session.query(Memory).filter(Memory.agent_id == agent_id).order_by(Memory.id.asc()).all()
             return [f"ID: {mem.id}, Type: {mem.type}, Content: {mem.content}" for mem in memories]
 
+    def delete_agent(self, agent_id):
+        with self.Session() as session:
+            agent = session.query(Agent).get(agent_id)
+            if agent:
+                # Delete associated memories first
+                session.query(Memory).filter(Memory.agent_id == agent_id).delete()
+                # Then delete the agent
+                session.delete(agent)
+                session.commit()
+                return True
+            return False
+
 class BaseLLM(ABC):
     @abstractmethod
     def generate(self, messages):

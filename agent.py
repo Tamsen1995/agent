@@ -1,87 +1,213 @@
+import pygame
+import sys
 import os
-from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
-from abc import ABC, abstractmethod
+import random
+from agent_logic import AgentManager
 
-# Load environment variables from .env file
-load_dotenv()
+pygame.init()
 
-class BaseLLM(ABC):
-    @abstractmethod
-    def generate(self, messages):
-        pass
+WIDTH, HEIGHT = 1024, 768
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Multi-Agent AI Game")
 
-class OpenAILLM(BaseLLM):
-    def __init__(self, model="gpt-3.5-turbo", temperature=0.7):
-        self.llm = ChatOpenAI(model=model, temperature=temperature, api_key=os.getenv('OPENAI_API_KEY'))
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+GRAY = (200, 200, 200)
 
-    def generate(self, messages):
-        response = self.llm.invoke(messages)
-        return response.content
+sprite_path = os.path.join(os.path.dirname(__file__), 'characters.png')
+sprite_sheet = pygame.image.load(sprite_path)
 
-class Agent:
-    def __init__(self, llm: BaseLLM):
-        self.interaction_count = 0
-        self.reflections = []
-        self.llm = llm
-        self.memory = []
+agent_manager = AgentManager()
 
-    def talk(self, user_input):
-        relevant_context = self.get_relevant_context(user_input)
-        messages = [
-            {"role": "system", "content": "You are a thoughtful agent with memory of past interactions. Use this context to inform your responses."},
-            {"role": "system", "content": f"Context: {relevant_context}"},
-            {"role": "user", "content": user_input}
-        ]
-        agent_response = self.llm.generate(messages)
-        self.memory.append(f"User said: {user_input}")
-        self.memory.append(f"Agent responded: {agent_response}")
-        self.interaction_count += 1
-        if self.interaction_count % 5 == 0:
-            self.generate_reflection()
-        return agent_response
-    
-    def generate_reflection(self):
-        reflection_prompt = "Reflect on your recent conversations and provide a thought about your overall goals or interactions."
-        messages = [
-            {"role": "system", "content": "You are reflecting on your past experiences to gain insight."},
-            {"role": "system", "content": f"Memory: {' '.join(self.memory[-5:])}"},  # Use last 5 memories for context
-            {"role": "user", "content": reflection_prompt}
-        ]
-        reflection = self.llm.generate(messages)
-        self.reflections.append(f"Reflection: {reflection}")
-        self.memory.append(f"Reflection: {reflection}")
-        print(f"Agent reflection: {reflection}")
+agents = []
+for db_agent in agent_manager.get_all_agents():
+    sprite = pygame.Surface((16, 16), pygame.SRCALPHA)
+    sprite.blit(sprite_sheet, (0, 0), (random.randint(0, 3) * 16, 0, 16, 16))
+    sprite = pygame.transform.scale(sprite, (32, 32))
+    agents.append({
+        "id": db_agent.id,
+        "name": db_agent.name,
+        "pos": [db_agent.x_position, db_agent.y_position],
+        "sprite": sprite,
+        "show_bubble": False,
+        "response": "",
+        "bubble_timer": 0
+    })
 
-    def inject_thought(self, thought):
-        self.memory.append(f"Thought: {thought}")
+clock = pygame.time.Clock()
 
-    def show_memory(self):
-        return self.memory
+input_active = False
+user_text = ''
+input_box = pygame.Rect(100, HEIGHT - 40, WIDTH - 200, 30)
+font = pygame.font.Font(None, 20)
 
-    def get_relevant_context(self, user_input):
-        relevant_memories = []
-        for memory in reversed(self.memory[-10:]):  # Check last 10 memories
-            if any(word in memory.lower() for word in user_input.lower().split()):
-                relevant_memories.append(memory)
-        return " ".join(relevant_memories[-3:])  # Return up to 3 most recent relevant memories
+viewing_memories = False
+memory_scroll = 0
+memories = []
 
-def main():
-    llm = OpenAILLM()  # Create an instance of OpenAILLM
-    agent = Agent(llm)  # Pass the LLM instance to the Agent
-    while True:
-        user_input = input("\nYou: ")
-        if user_input.lower() == "exit":
-            break
-        elif user_input.lower().startswith("inject"):
-            thought = user_input.replace("inject", "").strip()
-            agent.inject_thought(thought)
-            print(f"Thought injected: {thought}")
-        elif user_input.lower() == "show memory":
-            for memory in agent.show_memory():
-                print(memory)
+def draw_speech_bubble(text, position, sprite):
+    max_width = 300
+    words = text.split(' ')
+    lines = []
+    font_height = font.get_height()
+    line = ''
+    for word in words:
+        test_line = line + word + ' '
+        if font.size(test_line)[0] <= max_width - 20:
+            line = test_line
         else:
-            print(f"Agent: {agent.talk(user_input)}")
+            lines.append(line)
+            line = word + ' '
+    lines.append(line)
 
-if __name__ == "__main__":
-    main()
+    padding = 10
+    bubble_width = max(font.size(l)[0] for l in lines) + padding * 2
+    bubble_height = font_height * len(lines) + padding * 2
+
+    bubble_x = position[0] + sprite.get_width() // 2 - bubble_width // 2
+    bubble_y = position[1] - bubble_height - 10
+
+    pygame.draw.rect(screen, WHITE, (bubble_x, bubble_y, bubble_width, bubble_height))
+    pygame.draw.rect(screen, BLACK, (bubble_x, bubble_y, bubble_width, bubble_height), 2)
+
+    for i, line in enumerate(lines):
+        text_surface = font.render(line, True, BLACK)
+        screen.blit(
+            text_surface,
+            (bubble_x + padding, bubble_y + padding + i * font_height)
+        )
+
+def draw_memories():
+    global memory_scroll
+    memory_surface = pygame.Surface((WIDTH - 100, HEIGHT - 100))
+    memory_surface.fill(WHITE)
+    y = 10
+    for memory in memories[memory_scroll:]:
+        words = memory.split()
+        lines = []
+        current_line = []
+        for word in words:
+            test_line = ' '.join(current_line + [word])
+            if font.size(test_line)[0] <= WIDTH - 120:
+                current_line.append(word)
+            else:
+                lines.append(' '.join(current_line))
+                current_line = [word]
+        if current_line:
+            lines.append(' '.join(current_line))
+        
+        for line in lines:
+            memory_text = font.render(line, True, BLACK)
+            memory_surface.blit(memory_text, (10, y))
+            y += 30
+            if y > HEIGHT - 130:
+                break
+        y += 10  # Add some space between memories
+        if y > HEIGHT - 130:
+            break
+    screen.blit(memory_surface, (50, 50))
+    
+    pygame.draw.rect(screen, GRAY, (WIDTH - 30, 50, 20, HEIGHT - 100))
+    pygame.draw.polygon(screen, BLACK, [(WIDTH - 25, 60), (WIDTH - 15, 60), (WIDTH - 20, 50)])
+    pygame.draw.polygon(screen, BLACK, [(WIDTH - 25, HEIGHT - 60), (WIDTH - 15, HEIGHT - 60), (WIDTH - 20, HEIGHT - 50)])
+
+running = True
+selected_agent = 0 if agents else None
+
+while running:
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                running = False
+            elif event.key == pygame.K_n:
+                # Spawn a new agent
+                new_x = random.randint(0, WIDTH - 32)
+                new_y = random.randint(0, HEIGHT - 32)
+                new_name = f"Agent_{len(agents) + 1}"
+                new_id = agent_manager.create_agent(new_name, new_x, new_y)
+                new_sprite = pygame.Surface((16, 16), pygame.SRCALPHA)
+                new_sprite.blit(sprite_sheet, (0, 0), (random.randint(0, 3) * 16, 0, 16, 16))
+                new_sprite = pygame.transform.scale(new_sprite, (32, 32))
+                agents.append({
+                    "id": new_id,
+                    "name": new_name,
+                    "pos": [new_x, new_y],
+                    "sprite": new_sprite,
+                    "show_bubble": False,
+                    "response": "",
+                    "bubble_timer": 0
+                })
+                selected_agent = len(agents) - 1
+            elif event.key == pygame.K_t and not viewing_memories and not input_active and selected_agent is not None:
+                input_active = True
+            elif event.key == pygame.K_m and not input_active and selected_agent is not None:
+                viewing_memories = not viewing_memories
+                if viewing_memories:
+                    memories = agent_manager.list_all_memories(agents[selected_agent]["id"])
+                    memory_scroll = 0
+            elif event.key == pygame.K_TAB:
+                if agents:
+                    selected_agent = (selected_agent + 1) % len(agents)
+            elif viewing_memories:
+                if event.key == pygame.K_UP:
+                    memory_scroll = max(0, memory_scroll - 1)
+                elif event.key == pygame.K_DOWN:
+                    memory_scroll = min(len(memories) - 1, memory_scroll + 1)
+            elif input_active:
+                if event.key == pygame.K_RETURN:
+                    agent_response = agent_manager.talk(agents[selected_agent]["id"], user_text)
+                    agents[selected_agent]["show_bubble"] = True
+                    agents[selected_agent]["response"] = agent_response
+                    agents[selected_agent]["bubble_timer"] = 200  # bubble_duration
+                    user_text = ''
+                    input_active = False
+                elif event.key == pygame.K_BACKSPACE:
+                    user_text = user_text[:-1]
+                else:
+                    user_text += event.unicode
+        elif event.type == pygame.MOUSEBUTTONDOWN:
+            if viewing_memories:
+                if WIDTH - 30 <= event.pos[0] <= WIDTH - 10:
+                    if 50 <= event.pos[1] <= 70:
+                        memory_scroll = max(0, memory_scroll - 1)
+                    elif HEIGHT - 70 <= event.pos[1] <= HEIGHT - 50:
+                        memory_scroll = min(len(memories) - 1, memory_scroll + 1)
+
+    # Update agent positions
+    for agent in agents:
+        agent["pos"][0] += random.randint(-1, 1)
+        agent["pos"][1] += random.randint(-1, 1)
+        agent["pos"][0] = max(0, min(agent["pos"][0], WIDTH - 32))
+        agent["pos"][1] = max(0, min(agent["pos"][1], HEIGHT - 32))
+        agent_manager.update_agent_position(agent["id"], agent["pos"][0], agent["pos"][1])
+
+    screen.fill(WHITE)
+
+    # Draw agents and their speech bubbles
+    for i, agent in enumerate(agents):
+        screen.blit(agent["sprite"], agent["pos"])
+        if agent["show_bubble"]:
+            draw_speech_bubble(agent["response"], agent["pos"], agent["sprite"])
+            agent["bubble_timer"] -= 1
+            if agent["bubble_timer"] <= 0:
+                agent["show_bubble"] = False
+
+        # Highlight the selected agent
+        if i == selected_agent:
+            pygame.draw.rect(screen, (255, 0, 0), (*agent["pos"], 32, 32), 2)
+
+    if input_active:
+        pygame.draw.rect(screen, BLACK, input_box, 2)
+        text_surface = font.render(user_text, True, BLACK)
+        screen.blit(text_surface, (input_box.x + 5, input_box.y + 5))
+
+    if viewing_memories:
+        draw_memories()
+
+    pygame.display.flip()
+    clock.tick(60)
+
+pygame.quit()
+sys.exit()

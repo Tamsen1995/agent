@@ -2,7 +2,7 @@ import pygame
 import sys
 import os
 import random
-from agent_logic import AgentManager
+from agent_logic import AgentManager, OpenAILLM
 
 pygame.init()
 
@@ -72,7 +72,7 @@ for db_agent in agent_manager.get_all_agents():
         "bubble_timer": 0,
         "movement_cooldown": 0,
         "personality": random.random(),
-        "interaction_radius": 100  # Ensure this line is present
+        "interaction_radius": 100
     })
 
 clock = pygame.time.Clock()
@@ -118,7 +118,6 @@ def draw_speech_bubble(text, position, sprite):
             (bubble_x + padding, bubble_y + padding + i * font_height)
         )
 
-
 def check_nearby_agents(agent, all_agents):
     nearby_agents = []
     for other_agent in all_agents:
@@ -128,7 +127,6 @@ def check_nearby_agents(agent, all_agents):
             if distance <= agent['interaction_radius']:
                 nearby_agents.append(other_agent)
     return nearby_agents
-
 
 def draw_memories():
     global memory_scroll
@@ -214,7 +212,7 @@ while running:
                     "bubble_timer": 0,
                     "movement_cooldown": 0,
                     "personality": random.random(),
-                    "interaction_radius": 100  # Ensure this line is present
+                    "interaction_radius": 100
                 })
                 selected_agent = len(agents) - 1
             elif event.key == pygame.K_t and not viewing_memories and not input_active and selected_agent is not None:
@@ -222,7 +220,7 @@ while running:
             elif event.key == pygame.K_m and not input_active and selected_agent is not None:
                 viewing_memories = not viewing_memories
                 if viewing_memories:
-                    memories = agent_manager.list_all_memories_and_reflections(agents[selected_agent]["id"])
+                    memories = agent_manager.cognitive_archive.list_all_memories_and_reflections(agents[selected_agent]["id"])
                     memory_scroll = 0
             elif event.key == pygame.K_TAB:
                 if agents:
@@ -271,6 +269,7 @@ while running:
             agent["movement_cooldown"] = random.randint(base_cooldown, base_cooldown + 10)
         else:
             agent["movement_cooldown"] -= 1
+
     # Check for agent interactions
     for i, agent in enumerate(agents):
         if agent["bubble_timer"] <= 0:  # Only initiate new interactions if not already talking

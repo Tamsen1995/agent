@@ -52,39 +52,58 @@ class AgentManager:
         self.cognitive_archive.check_and_generate_reflection(agent_id, llm)
         return agent_response
 
-    def agent_interaction(self, agent1_id, agent2_id):
+    def agent_interaction(self, agent1_id, agent2_id, num_exchanges=3):
         with self.Session() as session:
             agent1 = session.query(Agent).get(agent1_id)
             agent2 = session.query(Agent).get(agent2_id)
             if agent1 and agent2:
-                memory_strings1, reflection_strings1 = self.cognitive_archive.get_context_for_interaction(agent1_id, agent2.name)
-                memory_strings2, reflection_strings2 = self.cognitive_archive.get_context_for_interaction(agent2_id, agent1.name)
-
-                prompt_agent1 = self.create_interaction_prompt(agent1.name, agent2.name, memory_strings1, reflection_strings1)
-                prompt_agent2 = self.create_interaction_prompt(agent2.name, agent1.name, memory_strings2, reflection_strings2)
-
                 llm = OpenAILLM()
+                full_interaction = []
+                
+                print(f"Starting interaction between {agent1.name} and {agent2.name}:")
+                print("=" * 40)
+                
+                for i in range(num_exchanges):
+                    print(f"\nExchange {i+1}:")
+                    
+                    # Agent 1's turn
+                    memory_strings1, reflection_strings1 = self.cognitive_archive.get_context_for_interaction(agent1_id, agent2.name)
+                    prompt_agent1 = self.create_interaction_prompt(agent1.name, agent2.name, memory_strings1, reflection_strings1, full_interaction)
+                    response1 = llm.generate(prompt_agent1)
+                    full_interaction.append(f"{agent1.name}: {response1}")
+                    self.cognitive_archive.add_memory(agent1_id, 'interaction', f"{agent1.name}: {response1}")
+                    print(f"{agent1.name}: {response1}")
 
-                response1 = llm.generate(prompt_agent1)
-                response2 = llm.generate(prompt_agent2)
+                    # Agent 2's turn
+                    memory_strings2, reflection_strings2 = self.cognitive_archive.get_context_for_interaction(agent2_id, agent1.name)
+                    prompt_agent2 = self.create_interaction_prompt(agent2.name, agent1.name, memory_strings2, reflection_strings2, full_interaction)
+                    response2 = llm.generate(prompt_agent2)
+                    full_interaction.append(f"{agent2.name}: {response2}")
+                    self.cognitive_archive.add_memory(agent2_id, 'interaction', f"{agent2.name}: {response2}")
+                    print(f"{agent2.name}: {response2}")
 
-                self.cognitive_archive.add_memory(agent1_id, 'interaction', f"{agent1.name}: {response1}")
-                self.cognitive_archive.add_memory(agent2_id, 'interaction', f"{agent2.name}: {response2}")
+                print("\nGenerating reflections...")
+                reflection1 = self.cognitive_archive.generate_reflection(agent1_id, llm)
+                reflection2 = self.cognitive_archive.generate_reflection(agent2_id, llm)
+                print(f"\n{agent1.name}'s reflection: {reflection1}")
+                print(f"\n{agent2.name}'s reflection: {reflection2}")
 
-                reflection1 = self.cognitive_archive.check_and_generate_reflection(agent1_id, llm)
-                reflection2 = self.cognitive_archive.check_and_generate_reflection(agent2_id, llm)
-
-                full_interaction = f"{agent1.name}: {response1}\n{agent2.name}: {response2}"
-                return full_interaction, reflection1, reflection2
+                return "\n".join(full_interaction), reflection1, reflection2
+        print("No interaction occurred.")
         return "No interaction occurred.", None, None
 
-    def create_interaction_prompt(self, agent_name, other_agent_name, memories, reflections):
-        context = f"You are {agent_name}. You are interacting with {other_agent_name}. Use the following memories and reflections to guide your response:\n\nMemories:\n{memories}\n\nReflections:\n{reflections}"
+    def create_interaction_prompt(self, agent_name, other_agent_name, memories, reflections, conversation_history):
+        context = f"You are {agent_name}. You are having a conversation with {other_agent_name}. Use the following memories and reflections to guide your responses:\n\nMemories:\n{memories}\n\nReflections:\n{reflections}"
         prompt = [
             {"role": "system", "content": context},
-            {"role": "assistant", "content": f"{other_agent_name} says: Hello!"},
-            {"role": "assistant", "content": "Compose your reply."}
+            {"role": "system", "content": "Here's the conversation so far:"}
         ]
+        
+        for exchange in conversation_history:
+            prompt.append({"role": "assistant", "content": exchange})
+        
+        prompt.append({"role": "assistant", "content": f"Continue the conversation as {agent_name}. Respond to {other_agent_name}'s last message or start a new topic if appropriate."})
+        
         return prompt
 
     def delete_agent(self, agent_id):

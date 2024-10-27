@@ -112,7 +112,7 @@ class CognitiveArchive:
             combined.sort()
             return combined
 
-    def check_and_generate_reflection(self, agent_id, llm, interaction_threshold=10):
+    def check_and_generate_reflection(self, agent_id, llm, interaction_threshold=3):
         interaction_count = self.increment_interaction_count(agent_id)
         if interaction_count and interaction_count % interaction_threshold == 0:
             return self.generate_reflection(agent_id, llm)
